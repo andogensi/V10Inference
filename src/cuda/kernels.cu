@@ -233,32 +233,91 @@ extern "C" void launchFullyConnected(
 }
 
 
-__global__ void softmax_kernel(const float* input, float* output, int size, float max_val, float sum_exp) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+// ============================================================
+// Softmax実装: GPU上で完全に実行
+// ============================================================
+
+// リダクション用: 配列の最大値を求める(単一ブロック用)
+__global__ void find_max_kernel(const float* input, float* max_val, int size) {
+    extern __shared__ float sdata[];
+    
+    unsigned int tid = threadIdx.x;
+    unsigned int i = tid;
+    
+    // データをシェアードメモリにロード
+    sdata[tid] = (i < size) ? input[i] : -FLT_MAX;
+    __syncthreads();
+    
+    // リダクション
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            sdata[tid] = fmaxf(sdata[tid], sdata[tid + s]);
+        }
+        __syncthreads();
+    }
+    
+    // 結果を書き込み
+    if (tid == 0) {
+        *max_val = sdata[0];
+    }
+}
+
+// リダクション用: exp(x - max)の合計を求める(単一ブロック用)
+__global__ void sum_exp_kernel(const float* input, const float* max_val, float* sum_exp, int size) {
+    extern __shared__ float sdata[];
+    
+    unsigned int tid = threadIdx.x;
+    unsigned int i = tid;
+    
+    // exp(x - max)を計算してシェアードメモリにロード
+    sdata[tid] = (i < size) ? expf(input[i] - *max_val) : 0.0f;
+    __syncthreads();
+    
+    // リダクション
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            sdata[tid] += sdata[tid + s];
+        }
+        __syncthreads();
+    }
+    
+    // 結果を書き込み
+    if (tid == 0) {
+        *sum_exp = sdata[0];
+    }
+}
+
+// 最終的な正規化
+__global__ void softmax_normalize_kernel(const float* input, float* output, const float* max_val, const float* sum_exp, int size) {
+    int idx = threadIdx.x;
     if (idx >= size) return;
     
-    output[idx] = expf(input[idx] - max_val) / sum_exp;
+    output[idx] = expf(input[idx] - *max_val) / *sum_exp;
 }
 
 extern "C" void launchSoftmax(const float* d_input, float* d_output, int size) {
-
-    std::vector<float> h_input(size);
-    cudaMemcpy(h_input.data(), d_input, size * sizeof(float), cudaMemcpyDeviceToHost);
-
-    float max_val = h_input[0];
-    for (int i = 1; i < size; ++i) {
-        if (h_input[i] > max_val) max_val = h_input[i];
-    }
-
-    float sum_exp = 0.0f;
-    for (int i = 0; i < size; ++i) {
-        sum_exp += expf(h_input[i] - max_val);
-    }
-
-    std::vector<float> h_output(size);
-    for (int i = 0; i < size; ++i) {
-        h_output[i] = expf(h_input[i] - max_val) / sum_exp;
-    }
+    // 小規模データ(size=10)なので単一ブロックで処理
+    const int threads = (size + 31) & ~31; // 32の倍数に切り上げ(最低32)
     
-    cudaMemcpy(d_output, h_output.data(), size * sizeof(float), cudaMemcpyHostToDevice);
+    // 一時バッファ(GPUメモリ)
+    float *d_max_val, *d_sum_exp;
+    cudaMalloc(&d_max_val, sizeof(float));
+    cudaMalloc(&d_sum_exp, sizeof(float));
+    
+    // ステップ1: 最大値を求める
+    find_max_kernel<<<1, threads, threads * sizeof(float)>>>(d_input, d_max_val, size);
+    
+    // ステップ2: exp(x - max)の合計を求める
+    sum_exp_kernel<<<1, threads, threads * sizeof(float)>>>(d_input, d_max_val, d_sum_exp, size);
+    
+    // ステップ3: 最終的な正規化
+    softmax_normalize_kernel<<<1, threads>>>(d_input, d_output, d_max_val, d_sum_exp, size);
+    
+    cudaDeviceSynchronize();
+    
+    // クリーンアップ
+    cudaFree(d_max_val);
+    cudaFree(d_sum_exp);
 }
+
+

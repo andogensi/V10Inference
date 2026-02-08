@@ -85,9 +85,11 @@ void InferenceEngine::runLayer1(const std::vector<float>& input, float** d_pout)
     // Bias + ReLU
     launchAddBiasRelu(d_output, d_bias, ch_pix, num_filters);
 
+#ifdef DEBUG_PRINT
     std::vector<float> h_output(num_filters * ch_pix);
     cudaMemcpy(h_output.data(), d_output, h_output.size() * sizeof(float), cudaMemcpyDeviceToHost);
     printFilterResults(h_output, num_filters, ch_pix, "After Conv + ReLU (24x24)");
+#endif
 
     const int pw = output_w / 2; // 12
     const int ph = output_h / 2; // 12
@@ -102,10 +104,12 @@ void InferenceEngine::runLayer1(const std::vector<float>& input, float** d_pout)
                       output_w, output_h, pw, ph);
     }
 
+#ifdef DEBUG_PRINT
     // 結果確認
     std::vector<float> h_pout(num_filters * p_pix);
     cudaMemcpy(h_pout.data(), *d_pout, h_pout.size() * sizeof(float), cudaMemcpyDeviceToHost);
     printFilterResults(h_pout, num_filters, p_pix, "After MaxPool (12x12)");
+#endif
 
     // クリーンアップ
     cudaFree(d_input);
@@ -154,9 +158,11 @@ void InferenceEngine::runLayer2(float* d_l1_out, float** d_pout) {
 
     launchAddBiasRelu(d_output, d_bias, out_pix, out_channels);
 
+#ifdef DEBUG_PRINT
     std::vector<float> h_output(out_channels * out_pix);
     cudaMemcpy(h_output.data(), d_output, h_output.size() * sizeof(float), cudaMemcpyDeviceToHost);
     printFilterResults(h_output, out_channels, out_pix, "After Conv + ReLU (8x8)");
+#endif
 
     const int pw = out_w / 2; // 4
     const int ph = out_h / 2; // 4
@@ -166,9 +172,12 @@ void InferenceEngine::runLayer2(float* d_l1_out, float** d_pout) {
 
     launchMaxPoolMultiChannel(d_output, *d_pout, out_w, out_h, 
                               pw, ph, out_channels);
+    
+#ifdef DEBUG_PRINT
     std::vector<float> h_pout(out_channels * p_pix);
     cudaMemcpy(h_pout.data(), *d_pout, h_pout.size() * sizeof(float), cudaMemcpyDeviceToHost);
     printFilterResults(h_pout, out_channels, p_pix, "After MaxPool (4x4)");
+#endif
 
     cudaFree(d_weights);
     cudaFree(d_bias);
@@ -203,6 +212,7 @@ int InferenceEngine::runLayer3(float* d_l2_out) {
 
     launchFullyConnected(d_l2_out, d_weights, d_bias, d_output, in_features, out_features);
 
+#ifdef DEBUG_PRINT
     std::vector<float> h_output(out_features);
     cudaMemcpy(h_output.data(), d_output, out_features * sizeof(float), cudaMemcpyDeviceToHost);
     
@@ -210,17 +220,22 @@ int InferenceEngine::runLayer3(float* d_l2_out) {
     for (int i = 0; i < out_features; ++i) {
         std::cout << "Class [" << i << "]: " << h_output[i] << std::endl;
     }
+#endif
 
     launchSoftmax(d_output, d_smax, out_features);
 
     std::vector<float> h_smax(out_features);
     cudaMemcpy(h_smax.data(), d_smax, out_features * sizeof(float), cudaMemcpyDeviceToHost);
 
-    std::cout << "--- Final Probabilities (Softmax Output) ---" << std::endl;
+    std::cout << "================================================" << std::endl;
+    std::cout << "Inference Results (Probabilities)" << std::endl;
+    std::cout << "================================================" << std::endl;
+    
     float max_prob = 0.0f;
     int pred_cls = 0;
+    
     for (int i = 0; i < out_features; ++i) {
-        std::cout << "Class [" << i << "]: " << (h_smax[i] * 100.0f) << "%" << std::endl;
+        std::cout << "Digit " << i << ": " << (h_smax[i] * 100.0f) << "%" << std::endl;
         if (h_smax[i] > max_prob) {
             max_prob = h_smax[i];
             pred_cls = i;

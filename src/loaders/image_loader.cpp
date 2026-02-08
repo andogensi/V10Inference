@@ -30,10 +30,12 @@ std::vector<float> ImageLoader::loadMNISTImage(const std::string& path, int& wid
         std::cerr << "Warning: Image is not 28x28. Expected 28x28 for MNIST." << std::endl;
     }
     
-    // 正規化 (0-255 0.0-1.0)
+    // 正規化 (0-255 -> 0.0-1.0) + 反転
+    // 多くのMNISTモデルは背景=白、文字=黒で学習されているため反転が必要
     result.resize(width * height);
     for (int i = 0; i < width * height; ++i) {
-        result[i] = static_cast<float>(data[i]) / 255.0f;
+        // 反転: 白文字の画像を黒文字に変換
+        result[i] = 1.0f - (static_cast<float>(data[i]) / 255.0f);
     }
     
     stbi_image_free(data);
