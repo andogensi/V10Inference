@@ -39,3 +39,43 @@
 
 # debug information files
 *.dwo
+
+# Build directories
+build/
+bin/
+cmake-build-*/
+out/
+
+# IDE files
+.vs/
+.vscode/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+
+# CUDA compilation files
+*.ptx
+*.cubin
+*.fatbin
+
+# Model files (optional - uncomment if you want to ignore models)
+# *.onnx
+# *.pb
+
+# Log files
+*.log
+log.txt
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# proto files
+./src/proto
+./src/proto/*
+/src/proto
+/V10Inference/x64/Debug
+/mnist-8.onnx
+*.png
