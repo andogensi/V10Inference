@@ -1,13 +1,13 @@
 # V10Inference
 
-V10Inference は、ONNX形式の機械学習モデルを使用した高速推論エンジンです。CUDA対応のGPUアクセラレーションにより、効率的なニューラルネットワーク推論を実現します。
+AIの仕組みについての理解を深めたいという思いで個人開発しています 
+V10Inference は、ONNX形式の機械学習モデル用のAI推論エンジンです
+V10はエンジン1LR-GUE　V10エンジンのV10から来ています　
 
 ## 特徴
 
-- 🚀 **CUDA アクセラレーション**: GPU を活用した高速推論
-- 📦 **ONNX サポート**: 標準的なONNX形式のモデルに対応
-- 🎯 **画像分類**: MNIST などの画像認識タスクに対応
-- 🔧 **モジュラー設計**: 拡張しやすいアーキテクチャ
+- **CUDA: GPU を活用した高速推論
+
 
 ## ディレクトリ構成
 
@@ -18,9 +18,9 @@ V10Inference/
 │   ├── image_loader.h
 │   └── model_loader.h
 ├── src/                   # 実装ファイル
-│   ├── core/             # コア機能
+│   ├── core/             # コア
 │   │   └── inference_engine.cpp
-│   ├── loaders/          # データ読み込み
+│   ├── loaders/          # 読み込み
 │   │   ├── image_loader.cpp
 │   │   └── model_loader.cpp
 │   └── cuda/             # CUDAカーネル
@@ -29,28 +29,19 @@ V10Inference/
 │   └── onnx/
 │       ├── onnx.pb.h
 │       └── onnx.pb.cc
-└── examples/             # サンプルコード
+└── examples/             # サンプル
     └── main.cpp
 ```
 
-## 必要要件
+## 要件
 
 ### ソフトウェア
-- Visual Studio 2022 (またはそれ以降)
-- CUDA Toolkit 13.0 (またはそれ以降)
-- C++17 対応コンパイラ
+- Visual Studio 2022
+- CUDA Toolkit 13.0
+- C++17 対応コンパイラ(MSVC v143)
 
 ### ハードウェア
-- CUDA対応 NVIDIA GPU
-
-## ビルド方法
-
-### Visual Studio を使用する場合
-
-1. `V10Inference.sln` を Visual Studio で開く
-2. ビルド構成を選択 (Debug または Release)
-3. プラットフォームを x64 に設定
-4. ビルド → ソリューションのビルド
+- CUDA NVIDIA GPU
 
 ## 使用方法
 
@@ -71,37 +62,10 @@ V10Inference.exe -i my_digit.png -m mnist-8.onnx
 
 | オプション | 説明 | デフォルト値 |
 |-----------|------|-------------|
-| `-i, --image <path>` | 入力画像ファイルのパス | `test_digit.png` |
-| `-m, --model <path>` | ONNXモデルファイルのパス | `mnist-8.onnx` |
-| `-h, --help` | ヘルプメッセージを表示 | - |
+| `-i, --image path` | 入力画像ファイルのパス | `test_digit.png` |
+| `-m, --model path` | ONNXのパス | `mnist-8.onnx` |
 
-### プログラムでの使用例
-
-```cpp
-#include "model_loader.h"
-#include "image_loader.h"
-#include "inference_engine.h"
-
-int main() {
-    // モデルの読み込み
-    ModelLoader model;
-    model.loadModel("mnist-8.onnx");
-    
-    // 画像の読み込み
-    ImageLoader imgLoader;
-    int width, height;
-    auto image = imgLoader.loadMNISTImage("test.png", width, height);
-    
-    // 推論の実行
-    InferenceEngine engine(model);
-    int prediction = engine.run(image);
-    
-    std::cout << "予測結果: " << prediction << std::endl;
-    return 0;
-}
-```
-
-## API リファレンス
+## API 
 
 ### ModelLoader
 
@@ -130,7 +94,7 @@ public:
 
 ### InferenceEngine
 
-ニューラルネットワークの推論を実行するメインエンジン。
+ニューラルネットワークの推論を実行するメインクラス
 
 ```cpp
 class InferenceEngine {
@@ -140,22 +104,12 @@ public:
 };
 ```
 
-## ライセンス
+## 問題があた場合
 
-このプロジェクトのライセンス情報については、プロジェクトオーナーにお問い合わせください。
+問題が発生した場合は、以下を確認してください
 
-## 貢献
-
-バグ報告や機能要望は、GitHubのIssuesセクションにお願いします。
-
-## サポート
-
-問題が発生した場合は、以下を確認してください:
-
-1. CUDA Toolkitが正しくインストールされているか
+1. CUDA Toolkitが正しくインストールされているか 
 2. 使用しているGPUがCUDA対応か
-3. Visual Studioのビルド設定が正しい]
+3. Visual Studioのビルド設定が正しいか
 
----
 
-**Made with ❤️ for High-Performance AI Inference**
