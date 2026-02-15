@@ -31,10 +31,8 @@ std::vector<float> ImageLoader::loadMNISTImage(const std::string& path, int& wid
     }
     
     // 正規化 (0-255 -> 0.0-1.0) + 反転
-    // 多くのMNISTモデルは背景=白、文字=黒で学習されているため反転が必要
     result.resize(width * height);
     for (int i = 0; i < width * height; ++i) {
-        // 反転: 白文字の画像を黒文字に変換
         result[i] = 1.0f - (static_cast<float>(data[i]) / 255.0f);
     }
     
@@ -46,8 +44,7 @@ std::vector<float> ImageLoader::createDefaultPattern() {
     std::vector<float> h_input(MNIST_WIDTH * MNIST_HEIGHT, 0.0f);
     
     std::cout << "Creating default pattern (digit '1')..." << std::endl;
-    
-    // 「1」のパターン: 中央付近に縦線を描画
+
     for (int y = 4; y < 24; ++y) {
         for (int x = 13; x <= 15; ++x) {
             h_input[y * 28 + x] = 1.0f;

@@ -111,7 +111,6 @@ void InferenceEngine::runLayer1(const std::vector<float>& input, float** d_pout)
     printFilterResults(h_pout, num_filters, p_pix, "After MaxPool (12x12)");
 #endif
 
-    // クリーンアップ
     cudaFree(d_input);
     cudaFree(d_weights);
     cudaFree(d_bias);
@@ -133,7 +132,6 @@ void InferenceEngine::runLayer2(float* d_l1_out, float** d_pout) {
     const int out_h = in_h - kernel_size + 1; // 8
     const int out_pix = out_w * out_h; // 64
 
-    // 重みとバイアスを取得
     std::vector<float> h_weights = model_.getTensorData("Parameter87");
     std::vector<float> h_bias = model_.getTensorData("Parameter88");
 
@@ -142,17 +140,14 @@ void InferenceEngine::runLayer2(float* d_l1_out, float** d_pout) {
         return;
     }
 
-    // GPUメモリ確保
     float *d_weights, *d_bias, *d_output;
     cudaMalloc(&d_weights, h_weights.size() * sizeof(float));
     cudaMalloc(&d_bias, h_bias.size() * sizeof(float));
     cudaMalloc(&d_output, out_channels * out_pix * sizeof(float));
 
-    // データ転送
     cudaMemcpy(d_weights, h_weights.data(), h_weights.size() * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_bias, h_bias.data(), h_bias.size() * sizeof(float), cudaMemcpyHostToDevice);
 
-    // マルチチャンネルConv2D
     launchConv2DMultiChannel(d_l1_out, d_weights, d_output,
                              in_w, in_h, in_channels, kernel_size, out_w, out_h, out_channels);
 
