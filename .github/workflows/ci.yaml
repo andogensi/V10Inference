@@ -23,12 +23,27 @@ jobs:
       - uses: actions/checkout@v4
 
       # Protobuf (for onnx.pb.cc/.h)
-      - name: Install Protobuf
+      - name: Install Protobuf (new enough for runtime_version.h)
         run: |
+          set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            protobuf-compiler libprotobuf-dev
+            git cmake ninja-build build-essential autoconf automake libtool pkg-config
 
+          # Pick a modern protobuf release tag.
+          # v26.x or v25.x are typically fine for runtime_version.h.
+          git clone --depth 1 --branch v26.1 https://github.com/protocolbuffers/protobuf.git
+          cd protobuf
+
+          cmake -S . -B build -G Ninja \
+            -Dprotobuf_BUILD_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Release
+
+          cmake --build build
+          sudo cmake --install build
+          sudo ldconfig
+
+          protoc --version
       # CUDA Toolkit (no GPU required for compiling)
       - name: Install CUDA Toolkit
         uses: Jimver/cuda-toolkit@v0.2.30
