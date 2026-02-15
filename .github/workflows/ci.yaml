@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main, develop ]
+  pull_request:
+    branches: [ master, main, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-linux-cuda:
+    name: Linux + CUDA (nvcc) build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Protobuf (for onnx.pb.cc/.h)
+      - name: Install Protobuf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler libprotobuf-dev
+
+      # CUDA Toolkit (no GPU required for compiling)
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.16
+        with:
+          cuda: "12.6.0"
+
+      - name: Verify toolchains
+        run: |
+          ${{ matrix.cxx }} --version
+          nvcc --version
+          protoc --version
+
+      - name: Build (g++ + nvcc)
+        run: |
+          set -euxo pipefail
+          mkdir -p build
+
+          # Compile C++ sources
+          ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
+            -I./include -I./third_party/onnx \
+            -c ./examples/main.cpp -o build/main.o
+
+          ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
+            -I./include -I./third_party/onnx \
+            -c ./src/core/inference_engine.cpp -o build/inference_engine.o
+
+          ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
+            -I./include -I./third_party/onnx \
+            -c ./src/loaders/model_loader.cpp -o build/model_loader.o
+
+          ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
+            -I./include -I./third_party/onnx \
+            -c ./src/loaders/image_loader.cpp -o build/image_loader.o
+
+          ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
+            -I./include -I./third_party/onnx \
+            -c ./third_party/onnx/onnx.pb.cc -o build/onnx_pb.o
+
+          # Compile CUDA sources
+          nvcc -std=c++17 -O2 \
+            -I./include -I./third_party/onnx \
+            -c ./src/cuda/kernels.cu -o build/kernels.o
+
+          # Link (use nvcc to link cudart easily)
+          nvcc -o build/V10Inference \
+            build/main.o build/inference_engine.o build/model_loader.o build/image_loader.o \
+            build/onnx_pb.o build/kernels.o \
+            -lprotobuf
+
+      # Run only "--help" so CI doesn't need mnist-8.onnx / test_digit.png
+      - name: Smoke test
+        run: |
+          ./build/V10Inference --help
