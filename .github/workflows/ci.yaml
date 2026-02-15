@@ -31,9 +31,10 @@ jobs:
 
       # CUDA Toolkit (no GPU required for compiling)
       - name: Install CUDA Toolkit
-        uses: Jimver/cuda-toolkit@v0.2.16
+        uses: Jimver/cuda-toolkit@v0.2.30
         with:
-          cuda: "12.6.0"
+          cuda: "12.6.3"
+
 
       - name: Verify toolchains
         run: |
