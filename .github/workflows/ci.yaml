@@ -43,8 +43,6 @@ jobs:
             sudo ldconfig
 
             protoc --version
-
-      # CUDA Toolkit (no GPU required for compiling)
       - name: Install CUDA Toolkit
         uses: Jimver/cuda-toolkit@v0.2.30
         with:
@@ -62,25 +60,24 @@ jobs:
           set -euxo pipefail
           mkdir -p build
 
-          # Compile C++ sources
           ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
-            -I./include -I./third_party/onnx \
+            -I./include -I./third_party/onnx -I"$CUDA_PATH/include" \
             -c ./examples/main.cpp -o build/main.o
 
           ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
-            -I./include -I./third_party/onnx \
+            -I./include -I./third_party/onnx -I"$CUDA_PATH/include" \
             -c ./src/core/inference_engine.cpp -o build/inference_engine.o
 
           ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
-            -I./include -I./third_party/onnx \
+            -I./include -I./third_party/onnx -I"$CUDA_PATH/include" \
             -c ./src/loaders/model_loader.cpp -o build/model_loader.o
 
           ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
-            -I./include -I./third_party/onnx \
+            -I./include -I./third_party/onnx -I"$CUDA_PATH/include" \
             -c ./src/loaders/image_loader.cpp -o build/image_loader.o
 
           ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -Werror \
-            -I./include -I./third_party/onnx \
+            -I./include -I./third_party/onnx -I"$CUDA_PATH/include" \
             -c ./third_party/onnx/onnx.pb.cc -o build/onnx_pb.o
 
           # Compile CUDA sources
@@ -88,11 +85,11 @@ jobs:
             -I./include -I./third_party/onnx \
             -c ./src/cuda/kernels.cu -o build/kernels.o
 
-          # Link (use nvcc to link cudart easily)
+          # Link
           nvcc -o build/V10Inference \
             build/main.o build/inference_engine.o build/model_loader.o build/image_loader.o \
             build/onnx_pb.o build/kernels.o \
-            -lprotobuf
+            -lprotobuf -L"$CUDA_PATH/lib64"
 
       - name: Smoke test
         run: |
