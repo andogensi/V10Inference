@@ -29,12 +29,13 @@ jobs:
             sudo apt-get install -y --no-install-recommends \
               git cmake ninja-build build-essential autoconf automake libtool pkg-config
 
-            git clone --depth 1 --branch v26.1 --recurse-submodules \
+            git clone --depth 1 --branch v29.5 --recurse-submodules \
               https://github.com/protocolbuffers/protobuf.git
             cd protobuf
 
             cmake -S . -B build -G Ninja \
               -Dprotobuf_BUILD_TESTS=OFF \
+              -Dprotobuf_ABSL_PROVIDER=module \
               -DCMAKE_BUILD_TYPE=Release
 
             cmake --build build
@@ -93,7 +94,6 @@ jobs:
             build/onnx_pb.o build/kernels.o \
             -lprotobuf
 
-      # Run only "--help" so CI doesn't need mnist-8.onnx / test_digit.png
       - name: Smoke test
         run: |
           ./build/V10Inference --help

@@ -18,8 +18,8 @@ void printUsage(const char* program_name) {
     std::cout << "  -m, --model <path>    ONNX model file path (default: mnist-8.onnx)" << std::endl;
     std::cout << "  -h, --help            Show this help message" << std::endl;
     std::cout << "\nExample:" << std::endl;
-    std::cout << "  " << program_name << " -i my_digit.png -m mnist-8.onnx" << std::endl;
-    std::cout << "  " << program_name << " --image my_digit.png" << std::endl;
+    std::cout << " " << program_name << " -i my_digit.png -m mnist-8.onnx" << std::endl;
+    std::cout << " " << program_name << " --image my_digit.png" << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
             if (i + 1 < argc) {
                 image_path = argv[++i];
             } else {
-                std::cerr << "Error: --image requires an argument" << std::endl;
+                std::cerr << "Error: --image t" << std::endl;
                 printUsage(argv[0]);
                 return -1;
             }
@@ -49,20 +49,20 @@ int main(int argc, char* argv[]) {
             if (i + 1 < argc) {
                 model_path = argv[++i];
             } else {
-                std::cerr << "Error: --model requires an argument" << std::endl;
+                std::cerr << "Error: --modelt" << std::endl;
                 printUsage(argv[0]);
                 return -1;
             }
         }
         else {
-            std::cerr << "Error: Unknown option: " << arg << std::endl;
+            std::cerr << "Error: Unknow " << arg << std::endl;
             printUsage(argv[0]);
             return -1;
         }
     }
 
     if (!fileExists(model_path)) {
-        std::cerr << "Error: Model file not found: " << model_path << std::endl;
+        std::cerr << "Error: Model file not " << model_path << std::endl;
         return -1;
     }
 
@@ -88,31 +88,24 @@ int main(int argc, char* argv[]) {
     std::cout << "\n[GPU Setup]" << std::endl;
     auto setup_start = std::chrono::high_resolution_clock::now();
     if (!engine.allocateGPU()) {
-        std::cerr << "Error: GPU allocation failed!" << std::endl;
+        std::cerr << "Error: GPU allocation failed" << std::endl;
         return -1;
     }
     auto setup_end = std::chrono::high_resolution_clock::now();
     auto setup_ms = std::chrono::duration<double, std::milli>(setup_end - setup_start).count();
     std::cout << "GPU setup time: " << setup_ms << " ms" << std::endl;
+    constexpr int WARMUP_ITERATIONS = 20;
+	constexpr int MEASURE_ITERATIONS = 200;//100から200に
     
-    std::cout << "\n[Warmup run]" << std::endl;
-    engine.run(input_image);
-    std::cout << "\n[Actual measurement]" << std::endl;
-    auto start = std::chrono::high_resolution_clock::now();
-    int prediction = engine.run(input_image);
-    auto end = std::chrono::high_resolution_clock::now();
-
-    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    std::cout << "\n[Statistical Benchmark - Portfolio Quality]" << std::endl;
+    std::cout << "Configuration: Warmup=" << WARMUP_ITERATIONS 
+              << ", Measure=" << MEASURE_ITERATIONS << std::endl;
     
-    std::cout << "\n=== Resulet ===" << std::endl;
-    std::cout << "inference: " << prediction << std::endl;
-    std::cout << "time: " << duration_ms << " ms (" << duration_us / 1000.0 << " ms)" << std::endl;
-    std::cout << "\n=== Layer Details ===" << std::endl;
-    std::cout << "Layer 1 (Conv+Pool): " << engine.getLayer1Time() << " ms" << std::endl;
-    std::cout << "Layer 2 (Conv+Pool): " << engine.getLayer2Time() << " ms" << std::endl;
-    std::cout << "Layer 3 (FC+Softmax): " << engine.getLayer3Time() << " ms" << std::endl;
-    std::cout << "Total (sum): " << (engine.getLayer1Time() + engine.getLayer2Time() + engine.getLayer3Time()) << " ms" << std::endl;
+    int prediction = engine.runWithStats(input_image, WARMUP_ITERATIONS, MEASURE_ITERATIONS);
+    
+    std::cout << "\n=== Final Prediction ===" << std::endl;
+    std::cout << "Predicted digit: " << prediction << std::endl;
+    engine.printTimingStats();
 
     return 0;
 }

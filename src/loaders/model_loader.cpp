@@ -43,18 +43,12 @@ std::vector<float> ModelLoader::getTensorData(const std::string& tensor_name) co
         }
     }
     
-    std::cerr << "Warning: Tensor '" << tensor_name << "' not found!" << std::endl;
+    std::cerr << "Warning: Tensor '" << tensor_name << "' not" << std::endl;
     return std::vector<float>();
 }
 
 void ModelLoader::printModelInfo() const {
-    std::cout << "------------------------------------------------" << std::endl;
-    std::cout << "Model IR Version: " << model_.ir_version() << std::endl;
-    std::cout << "Producer Name:    " << model_.producer_name() << std::endl;
-    std::cout << "Graph Name:       " << model_.graph().name() << std::endl;
-    std::cout << "------------------------------------------------" << std::endl;
 
-    std::cout << "Network Architecture (Layers):" << std::endl;
     int layer_count = 0;
     for (const auto& node : model_.graph().node()) {
         std::cout << "[" << layer_count++ << "] Operator: " << node.op_type();
