@@ -1,5 +1,6 @@
 #include "../../include/inference_engine.h"
 #include <iostream>
+#include <chrono>
 #include <cuda_runtime.h>
 
 // CUDAカーネル
@@ -18,33 +19,110 @@ InferenceEngine::InferenceEngine(const ModelLoader& model) : model_(model) {
 }
 
 InferenceEngine::~InferenceEngine() {
+    freeGPU();
+}
+
+bool InferenceEngine::allocateGPU() {
+    if (gpu_allocated_) return true;
+
+    std::vector<float> h_l1_weights = model_.getTensorData("Parameter5");
+    std::vector<float> h_l1_bias    = model_.getTensorData("Parameter6");
+    std::vector<float> h_l2_weights = model_.getTensorData("Parameter87");
+    std::vector<float> h_l2_bias    = model_.getTensorData("Parameter88");
+    std::vector<float> h_l3_weights = model_.getTensorData("Parameter193");
+    std::vector<float> h_l3_bias    = model_.getTensorData("Parameter194");
+
+    if (h_l1_weights.empty() || h_l1_bias.empty() ||
+        h_l2_weights.empty() || h_l2_bias.empty() ||
+        h_l3_weights.empty() || h_l3_bias.empty()) {
+        std::cerr << "Error: Model parameters not found!" << std::endl;
+        return false;
+    }
+    cudaMalloc(&d_input_, 28 * 28 * sizeof(float));
+
+   // Layer 1
+    cudaMalloc(&d_l1_weights_, h_l1_weights.size() * sizeof(float));
+    cudaMalloc(&d_l1_bias_, h_l1_bias.size() * sizeof(float));
+    cudaMalloc(&d_l1_conv_out_, 8 * 24 * 24 * sizeof(float));
+    cudaMalloc(&d_l1_pool_out_, 8 * 12 * 12 * sizeof(float));
+
+    // Layer 2;
+    cudaMalloc(&d_l2_weights_, h_l2_weights.size() * sizeof(float));
+    cudaMalloc(&d_l2_bias_, h_l2_bias.size() * sizeof(float));
+    cudaMalloc(&d_l2_conv_out_, 16 * 8 * 8 * sizeof(float));
+    cudaMalloc(&d_l2_pool_out_, 16 * 4 * 4 * sizeof(float));
+
+    // Layer 3
+    cudaMalloc(&d_l3_weights_, h_l3_weights.size() * sizeof(float));
+    cudaMalloc(&d_l3_bias_, h_l3_bias.size() * sizeof(float));
+    cudaMalloc(&d_l3_fc_out_, 10 * sizeof(float));
+    cudaMalloc(&d_l3_smax_out_, 10 * sizeof(float));
+    
+    //一括で転送で60msくらい削減
+    cudaMemcpy(d_l1_weights_, h_l1_weights.data(), h_l1_weights.size() * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_l1_bias_, h_l1_bias.data(), h_l1_bias.size() * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_l2_weights_, h_l2_weights.data(), h_l2_weights.size() * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_l2_bias_, h_l2_bias.data(), h_l2_bias.size() * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_l3_weights_, h_l3_weights.data(), h_l3_weights.size() * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_l3_bias_, h_l3_bias.data(), h_l3_bias.size() * sizeof(float), cudaMemcpyHostToDevice);
+
+    cudaDeviceSynchronize();
+    gpu_allocated_ = true;
+    return true;
+}
+
+void InferenceEngine::freeGPU() {
+    if (!gpu_allocated_) return;
+
+    cudaFree(d_input_);
+    cudaFree(d_l1_weights_); cudaFree(d_l1_bias_);
+    cudaFree(d_l1_conv_out_); cudaFree(d_l1_pool_out_);
+    cudaFree(d_l2_weights_); cudaFree(d_l2_bias_);
+    cudaFree(d_l2_conv_out_); cudaFree(d_l2_pool_out_);
+    cudaFree(d_l3_weights_); cudaFree(d_l3_bias_);
+    cudaFree(d_l3_fc_out_); cudaFree(d_l3_smax_out_);
+
+    d_input_ = nullptr;
+    d_l1_weights_ = nullptr; d_l1_bias_ = nullptr;
+    d_l1_conv_out_ = nullptr; d_l1_pool_out_ = nullptr;
+    d_l2_weights_ = nullptr; d_l2_bias_ = nullptr;
+    d_l2_conv_out_ = nullptr; d_l2_pool_out_ = nullptr;
+    d_l3_weights_ = nullptr; d_l3_bias_ = nullptr;
+    d_l3_fc_out_ = nullptr; d_l3_smax_out_ = nullptr;
+
+    gpu_allocated_ = false;
 }
 
 int InferenceEngine::run(const std::vector<float>& input_image) {
-    std::cout << "================================================" << std::endl;
-    std::cout << "Starting Inference..." << std::endl;
-    std::cout << "================================================" << std::endl;
+    if (!gpu_allocated_) {
+        if (!allocateGPU()) return -1;
+    }
 
-    float* d_l1_out = nullptr;
-    float* d_l2_out = nullptr;
- // 第1層
-    runLayer1(input_image, &d_l1_out);
+    // 第1層
+    auto t1_start = std::chrono::high_resolution_clock::now();
+    runLayer1(input_image);
+    cudaDeviceSynchronize();
+    auto t1_end = std::chrono::high_resolution_clock::now();
+    layer1_time_ms = std::chrono::duration<double, std::milli>(t1_end - t1_start).count();
 
     // 第2層
-    runLayer2(d_l1_out, &d_l2_out);
-  // 第3層
-    int prediction = runLayer3(d_l2_out);
+    auto t2_start = std::chrono::high_resolution_clock::now();
+    runLayer2();
+    cudaDeviceSynchronize();
+    auto t2_end = std::chrono::high_resolution_clock::now();
+    layer2_time_ms = std::chrono::duration<double, std::milli>(t2_end - t2_start).count();
 
-    //解放
-    cudaFree(d_l1_out);
-    cudaFree(d_l2_out);
+    // 第3層
+    auto t3_start = std::chrono::high_resolution_clock::now();
+    int prediction = runLayer3();
+    cudaDeviceSynchronize();
+    auto t3_end = std::chrono::high_resolution_clock::now();
+    layer3_time_ms = std::chrono::duration<double, std::milli>(t3_end - t3_start).count();
 
     return prediction;
 }
 
-void InferenceEngine::runLayer1(const std::vector<float>& input, float** d_pout) {
-    std::cout << "------------------------------------------------" << std::endl;
-    std::cout << "Layer 1: Conv2D (8 filters) + Bias + ReLU + MaxPool" << std::endl;
+void InferenceEngine::runLayer1(const std::vector<float>& input) {
 
     const int input_w = 28;
     const int input_h = 28;
@@ -53,75 +131,44 @@ void InferenceEngine::runLayer1(const std::vector<float>& input, float** d_pout)
     const int output_w = input_w - kernel_size + 1; // 24
     const int output_h = input_h - kernel_size + 1; // 24
     const int ch_pix = output_w * output_h; // 576
-    std::vector<float> h_weights = model_.getTensorData("Parameter5");
-    std::vector<float> h_bias = model_.getTensorData("Parameter6");
 
-    if (h_weights.empty() || h_bias.empty()) {
-        std::cerr << "Error: Layer 1 parameters not found!" << std::endl;
-        return;
-    }
+    auto mem_start = std::chrono::high_resolution_clock::now();
+    //画像だけ
+    cudaMemcpy(d_input_, input.data(), input.size() * sizeof(float), cudaMemcpyHostToDevice);
+    auto mem_end = std::chrono::high_resolution_clock::now();
+    double mem_time = std::chrono::duration<double, std::milli>(mem_end - mem_start).count();
 
-    //メモリ
-    float *d_input, *d_weights, *d_bias, *d_output;
-    cudaMalloc(&d_input, input.size() * sizeof(float));
-    cudaMalloc(&d_weights, h_weights.size() * sizeof(float));
-    cudaMalloc(&d_bias, h_bias.size() * sizeof(float));
-    cudaMalloc(&d_output, num_filters * ch_pix * sizeof(float));
-
-    //転送
-    cudaMemcpy(d_input, input.data(), input.size() * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_weights, h_weights.data(), h_weights.size() * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_bias, h_bias.data(), h_bias.size() * sizeof(float), cudaMemcpyHostToDevice);
-
-    //(8フィルタ)
-    int filt_w_cnt = kernel_size * kernel_size;
-    for (int i = 0; i < num_filters; ++i) {
-        float* w_ptr = d_weights + (i * filt_w_cnt);
-        float* out_ptr = d_output + (i * ch_pix);
-        launchConv2D(d_input, w_ptr, out_ptr, 
-                     input_w, input_h, kernel_size, output_w, output_h);
-    }
+    auto compute_start = std::chrono::high_resolution_clock::now();
+    //8回の呼び出しを１度に
+    launchConv2DMultiChannel(d_input_, d_l1_weights_, d_l1_conv_out_,
+                             input_w, input_h, 1, kernel_size, output_w, output_h, num_filters);
 
     // Bias + ReLU
-    launchAddBiasRelu(d_output, d_bias, ch_pix, num_filters);
+    launchAddBiasRelu(d_l1_conv_out_, d_l1_bias_, ch_pix, num_filters);
+    auto compute_end = std::chrono::high_resolution_clock::now();
+    double compute_time = std::chrono::duration<double, std::milli>(compute_end - compute_start).count();
+
+    std::cout << "  [L1 Detail] Memory transfer: " << mem_time << " ms, Compute: " << compute_time << " ms" << std::endl;
 
 #ifdef DEBUG_PRINT
     std::vector<float> h_output(num_filters * ch_pix);
-    cudaMemcpy(h_output.data(), d_output, h_output.size() * sizeof(float), cudaMemcpyDeviceToHost);
-    printFilterResults(h_output, num_filters, ch_pix, "After Conv + ReLU (24x24)");
+    cudaMemcpy(h_output.data(), d_l1_conv_out_, h_output.size() * sizeof(float), cudaMemcpyDeviceToHost);
+    printFilterResults(h_output, num_filters, ch_pix, "Conv + ReLU (24x24)");
 #endif
 
     const int pw = output_w / 2; // 12
     const int ph = output_h / 2; // 12
-    const int p_pix = pw * ph; // 144
-
-    cudaMalloc(d_pout, num_filters * p_pix * sizeof(float));
-
-    for (int i = 0; i < num_filters; ++i) {
-        float* in_ptr = d_output + (i * ch_pix);
-        float* out_ptr = *d_pout + (i * p_pix);
-        launchMaxPool(in_ptr, out_ptr, 
-                      output_w, output_h, pw, ph);
-    }
+    launchMaxPoolMultiChannel(d_l1_conv_out_, d_l1_pool_out_, output_w, output_h, pw, ph, num_filters);
 
 #ifdef DEBUG_PRINT
-    // 結果確認
+    const int p_pix = pw * ph;
     std::vector<float> h_pout(num_filters * p_pix);
-    cudaMemcpy(h_pout.data(), *d_pout, h_pout.size() * sizeof(float), cudaMemcpyDeviceToHost);
-    printFilterResults(h_pout, num_filters, p_pix, "After MaxPool (12x12)");
+    cudaMemcpy(h_pout.data(), d_l1_pool_out_, h_pout.size() * sizeof(float), cudaMemcpyDeviceToHost);
+    printFilterResults(h_pout, num_filters, p_pix, "MaxPool (12x12)");
 #endif
-
-    cudaFree(d_input);
-    cudaFree(d_weights);
-    cudaFree(d_bias);
-    cudaFree(d_output);
-
-    std::cout << "Layer 1 kansei!" << std::endl;
 }
 
-void InferenceEngine::runLayer2(float* d_l1_out, float** d_pout) {
-    std::cout << "------------------------------------------------" << std::endl;
-    std::cout << "Layer 2: Conv2D (16 filters) + Bias + ReLU + MaxPool" << std::endl;
+void InferenceEngine::runLayer2() {
 
     const int in_w = 12;
     const int in_h = 12;
@@ -132,119 +179,64 @@ void InferenceEngine::runLayer2(float* d_l1_out, float** d_pout) {
     const int out_h = in_h - kernel_size + 1; // 8
     const int out_pix = out_w * out_h; // 64
 
-    std::vector<float> h_weights = model_.getTensorData("Parameter87");
-    std::vector<float> h_bias = model_.getTensorData("Parameter88");
-
-    if (h_weights.empty() || h_bias.empty()) {
-        std::cerr << "Error: Layer 2 parameters not found!" << std::endl;
-        return;
-    }
-
-    float *d_weights, *d_bias, *d_output;
-    cudaMalloc(&d_weights, h_weights.size() * sizeof(float));
-    cudaMalloc(&d_bias, h_bias.size() * sizeof(float));
-    cudaMalloc(&d_output, out_channels * out_pix * sizeof(float));
-
-    cudaMemcpy(d_weights, h_weights.data(), h_weights.size() * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_bias, h_bias.data(), h_bias.size() * sizeof(float), cudaMemcpyHostToDevice);
-
-    launchConv2DMultiChannel(d_l1_out, d_weights, d_output,
+    launchConv2DMultiChannel(d_l1_pool_out_, d_l2_weights_, d_l2_conv_out_,
                              in_w, in_h, in_channels, kernel_size, out_w, out_h, out_channels);
 
-    launchAddBiasRelu(d_output, d_bias, out_pix, out_channels);
+    launchAddBiasRelu(d_l2_conv_out_, d_l2_bias_, out_pix, out_channels);
 
 #ifdef DEBUG_PRINT
     std::vector<float> h_output(out_channels * out_pix);
-    cudaMemcpy(h_output.data(), d_output, h_output.size() * sizeof(float), cudaMemcpyDeviceToHost);
-    printFilterResults(h_output, out_channels, out_pix, "After Conv + ReLU (8x8)");
+    cudaMemcpy(h_output.data(), d_l2_conv_out_, h_output.size() * sizeof(float), cudaMemcpyDeviceToHost);
+    printFilterResults(h_output, out_channels, out_pix, "Conv + ReLU (8x8)");
 #endif
 
     const int pw = out_w / 2; // 4
     const int ph = out_h / 2; // 4
-    const int p_pix = pw * ph; // 16
 
-    cudaMalloc(d_pout, out_channels * p_pix * sizeof(float));
-
-    launchMaxPoolMultiChannel(d_output, *d_pout, out_w, out_h, 
+    launchMaxPoolMultiChannel(d_l2_conv_out_, d_l2_pool_out_, out_w, out_h, 
                               pw, ph, out_channels);
     
 #ifdef DEBUG_PRINT
+    const int p_pix = pw * ph;
     std::vector<float> h_pout(out_channels * p_pix);
-    cudaMemcpy(h_pout.data(), *d_pout, h_pout.size() * sizeof(float), cudaMemcpyDeviceToHost);
-    printFilterResults(h_pout, out_channels, p_pix, "After MaxPool (4x4)");
+    cudaMemcpy(h_pout.data(), d_l2_pool_out_, h_pout.size() * sizeof(float), cudaMemcpyDeviceToHost);
+    printFilterResults(h_pout, out_channels, p_pix, "MaxPool (4x4)");
 #endif
-
-    cudaFree(d_weights);
-    cudaFree(d_bias);
-    cudaFree(d_output);
-
-    std::cout << "Layer 2 Complete!" << std::endl;
 }
 
-int InferenceEngine::runLayer3(float* d_l2_out) {
-    std::cout << "------------------------------------------------" << std::endl;
-    std::cout << "Layer 3: Fully Connected (256 -> 10) + Softmax" << std::endl;
+int InferenceEngine::runLayer3() {
 
     const int in_features = 16 * 16; 
     const int out_features = 10;
 
-    std::vector<float> h_weights = model_.getTensorData("Parameter193");
-    std::vector<float> h_bias = model_.getTensorData("Parameter194");
-
-    if (h_weights.empty() || h_bias.empty()) {
-        std::cerr << "Error: Layer 3 parameters not found!" << std::endl;
-        return -1;
-    }
-
-    float *d_weights, *d_bias, *d_output, *d_smax;
-    cudaMalloc(&d_weights, h_weights.size() * sizeof(float));
-    cudaMalloc(&d_bias, h_bias.size() * sizeof(float));
-    cudaMalloc(&d_output, out_features * sizeof(float));
-    cudaMalloc(&d_smax, out_features * sizeof(float));
-
-    cudaMemcpy(d_weights, h_weights.data(), h_weights.size() * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_bias, h_bias.data(), h_bias.size() * sizeof(float), cudaMemcpyHostToDevice);
-
-    launchFullyConnected(d_l2_out, d_weights, d_bias, d_output, in_features, out_features);
+    launchFullyConnected(d_l2_pool_out_, d_l3_weights_, d_l3_bias_, d_l3_fc_out_, in_features, out_features);
 
 #ifdef DEBUG_PRINT
     std::vector<float> h_output(out_features);
-    cudaMemcpy(h_output.data(), d_output, out_features * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_output.data(), d_l3_fc_out_, out_features * sizeof(float), cudaMemcpyDeviceToHost);
     
-    std::cout << "--- FC Output (Raw Logits) ---" << std::endl;
+    std::cout << "- F Output -" << std::endl;
     for (int i = 0; i < out_features; ++i) {
         std::cout << "Class [" << i << "]: " << h_output[i] << std::endl;
     }
 #endif
 
-    launchSoftmax(d_output, d_smax, out_features);
+    launchSoftmax(d_l3_fc_out_, d_l3_smax_out_, out_features);
 
     std::vector<float> h_smax(out_features);
-    cudaMemcpy(h_smax.data(), d_smax, out_features * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_smax.data(), d_l3_smax_out_, out_features * sizeof(float), cudaMemcpyDeviceToHost);
 
-    std::cout << "================================================" << std::endl;
-    std::cout << "Inference Results (Probabilities)" << std::endl;
-    std::cout << "================================================" << std::endl;
-    
     float max_prob = 0.0f;
     int pred_cls = 0;
     
     for (int i = 0; i < out_features; ++i) {
-        std::cout << "Digit " << i << ": " << (h_smax[i] * 100.0f) << "%" << std::endl;
         if (h_smax[i] > max_prob) {
             max_prob = h_smax[i];
             pred_cls = i;
         }
     }
 
-    std::cout << "================================================" << std::endl;
-    std::cout << "PREDICTION: " << pred_cls << " (Confidence: " << (max_prob * 100.0f) << "%)" << std::endl;
-    std::cout << "================================================" << std::endl;
-    //術式解放
-    cudaFree(d_weights);
-    cudaFree(d_bias);
-    cudaFree(d_output);
-    cudaFree(d_smax);
+    std::cout << "Predicton: " << pred_cls << " (Confidence: " << (max_prob * 100.0f) << "%)" << std::endl;
 
     return pred_cls;
 }

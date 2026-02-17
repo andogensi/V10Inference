@@ -25,13 +25,12 @@ bool ModelLoader::loadModel(const std::string& model_path) {
         return false;
     }
 
-    std::cout << "Loading model (" << size << " bytes)..." << std::endl;
-    
     if (!model_.ParseFromIstream(&input)) {
         std::cerr << "Error: Failed to parse ONNX model." << std::endl;
         return false;
     }
 
+    std::cout << "Model loaded successfully." << std::endl;
     return true;
 }
 
@@ -65,7 +64,6 @@ void ModelLoader::printModelInfo() const {
         }
         std::cout << std::endl;
     }
-    std::cout << "------------------------------------------------" << std::endl;
 }
 
 std::vector<float> ModelLoader::extractFloatData(const onnx::TensorProto& tensor) const {

@@ -19,18 +19,12 @@ std::vector<float> ImageLoader::loadMNISTImage(const std::string& path, int& wid
     unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 1);
     if (!data) {
         std::cerr << "Error: Failed to load image: " << path << std::endl;
-        std::cerr << "stbi_error: " << stbi_failure_reason() << std::endl;
         return result;
     }
     
-    std::cout << "Loaded image: " << path << " (" << width << "x" << height 
-              << ", channels=" << channels << ")" << std::endl;
+    std::cout << "Image loaded seikou!" << std::endl;
     
-    if (width != MNIST_WIDTH || height != MNIST_HEIGHT) {
-        std::cerr << "Warning: Image is not 28x28. Expected 28x28 for MNIST." << std::endl;
-    }
-    
-    // 正規化 (0-255 -> 0.0-1.0) + 反転
+    // (0-255 -> 0.0-1.0) + 反転
     result.resize(width * height);
     for (int i = 0; i < width * height; ++i) {
         result[i] = 1.0f - (static_cast<float>(data[i]) / 255.0f);
@@ -42,8 +36,6 @@ std::vector<float> ImageLoader::loadMNISTImage(const std::string& path, int& wid
 
 std::vector<float> ImageLoader::createDefaultPattern() {
     std::vector<float> h_input(MNIST_WIDTH * MNIST_HEIGHT, 0.0f);
-    
-    std::cout << "Creating default pattern (digit '1')..." << std::endl;
 
     for (int y = 4; y < 24; ++y) {
         for (int x = 13; x <= 15; ++x) {

@@ -38,8 +38,6 @@ extern "C" void launchConv2D(const float* d_input, const float* d_weight, float*
         (out_h + threadsPerBlock.y - 1) / threadsPerBlock.y);
     conv2d_kernel << <numBlocks, threadsPerBlock >> > (d_input, d_weight, d_output,
         in_w, in_h, k_size, out_w, out_h);
-
-    cudaDeviceSynchronize();
 }
 
 __global__ void addBiasRelu_kernel(float* data, const float* bias, int channel_size, int total_size) {
@@ -65,7 +63,6 @@ extern "C" void launchAddBiasRelu(float* d_data, const float* d_bias, int channe
     int blocks = (total_size + threads - 1) / threads;
 
     addBiasRelu_kernel << <blocks, threads >> > (d_data, d_bias, channel_size, total_size);
-    cudaDeviceSynchronize();
 }
 
 __global__ void maxpool_kernel(const float* input, float* output,
@@ -108,13 +105,10 @@ extern "C" void launchMaxPool(const float* d_input, float* d_output,
         (out_h + threads.y - 1) / threads.y);
 
     maxpool_kernel << <blocks, threads >> > (d_input, d_output, in_w, in_h, out_w, out_h);
-    cudaDeviceSynchronize();
 }
 
-// ============================================================
-// 第2層以降用: マルチチャンネル畳み込みカーネル
-// 複数の入力チャンネルを同時に処理して1つの出力ピクセルを計算
-// ============================================================
+
+// 複数の入力を同時に処理するやつ
 __global__ void conv2d_multichannel_kernel(
     const float* input,
     const float* weights, 
@@ -169,29 +163,57 @@ extern "C" void launchConv2DMultiChannel(
         d_input, d_weights, d_output,
         in_w, in_h, in_channels,
         kernel_size, out_w, out_h, out_channels);
-
-    cudaDeviceSynchronize();
 }
 
+
+__global__ void maxpool_multichannel_kernel(const float* input, float* output,
+    int in_w, int in_h,
+    int out_w, int out_h,
+    int num_channels) {
+
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int c = blockIdx.z;
+
+    if (x >= out_w || y >= out_h || c >= num_channels) return;
+
+    int in_channel_size = in_w * in_h;
+    int out_channel_size = out_w * out_h;
+
+    int start_x = x * 2;
+    int start_y = y * 2;
+
+    float max_val = -FLT_MAX;
+
+    for (int dy = 0; dy < 2; ++dy) {
+        for (int dx = 0; dx < 2; ++dx) {
+            int cur_x = start_x + dx;
+            int cur_y = start_y + dy;
+
+            if (cur_x < in_w && cur_y < in_h) {
+                float val = input[c * in_channel_size + cur_y * in_w + cur_x];
+                if (val > max_val) {
+                    max_val = val;
+                }
+            }
+        }
+    }
+
+    output[c * out_channel_size + y * out_w + x] = max_val;
+}
 
 extern "C" void launchMaxPoolMultiChannel(
     const float* d_input, float* d_output,
     int in_w, int in_h, int out_w, int out_h, int num_channels)
 {
-    int in_channel_size = in_w * in_h;
-    int out_channel_size = out_w * out_h;
+    dim3 threads(16, 16, 1);
+    dim3 blocks(
+        (out_w + threads.x - 1) / threads.x,
+        (out_h + threads.y - 1) / threads.y,
+        num_channels
+    );
 
-    for (int c = 0; c < num_channels; ++c) {
-        const float* channel_input = d_input + c * in_channel_size;
-        float* channel_output = d_output + c * out_channel_size;
-
-        dim3 threads(16, 16);
-        dim3 blocks((out_w + threads.x - 1) / threads.x,
-                    (out_h + threads.y - 1) / threads.y);
-
-        maxpool_kernel<<<blocks, threads>>>(channel_input, channel_output, in_w, in_h, out_w, out_h);
-    }
-    cudaDeviceSynchronize();
+    maxpool_multichannel_kernel<<<blocks, threads>>>(d_input, d_output, in_w, in_h, out_w, out_h, num_channels);
 }
 
 
@@ -229,7 +251,6 @@ extern "C" void launchFullyConnected(
     int blocks = (out_features + threads - 1) / threads;
     
     fc_kernel<<<blocks, threads>>>(d_input, d_weights, d_bias, d_output, in_features, out_features);
-    cudaDeviceSynchronize();
 }
 
 __global__ void find_max_kernel(const float* input, float* max_val, int size) {
@@ -249,7 +270,7 @@ __global__ void find_max_kernel(const float* input, float* max_val, int size) {
         __syncthreads();
     }
     
-    // 結果を書き込み
+    // 結果
     if (tid == 0) {
         *max_val = sdata[0];
     }
@@ -272,8 +293,7 @@ __global__ void sum_exp_kernel(const float* input, const float* max_val, float* 
         }
         __syncthreads();
     }
-    
-    // 結果を書き込み
+   
     if (tid == 0) {
         *sum_exp = sdata[0];
     }
@@ -297,7 +317,6 @@ extern "C" void launchSoftmax(const float* d_input, float* d_output, int size) {
     sum_exp_kernel<<<1, threads, threads * sizeof(float)>>>(d_input, d_max_val, d_sum_exp, size);
     softmax_normalize_kernel<<<1, threads>>>(d_input, d_output, d_max_val, d_sum_exp, size);
     
-    cudaDeviceSynchronize();
     cudaFree(d_max_val);
     cudaFree(d_sum_exp);
 }

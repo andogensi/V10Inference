@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <filesystem>
+#include <chrono>
 #include "../include/model_loader.h"
 #include "../include/image_loader.h"
 #include "../include/inference_engine.h"
@@ -22,8 +23,7 @@ void printUsage(const char* program_name) {
 }
 
 int main(int argc, char* argv[]) {
-    std::cout << "Current Working Directory: " << std::filesystem::current_path() << std::endl;
-    std::cout << "Redline Engine: Initializing..." << std::endl;
+    std::cout << "V10: Initializing..." << std::endl;
 
     // デフォルト
     std::string model_path = "mnist-8.onnx";
@@ -61,9 +61,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::cout << "Model file: " << model_path << std::endl;
-    std::cout << "Image file: " << image_path << std::endl;
-
     if (!fileExists(model_path)) {
         std::cerr << "Error: Model file not found: " << model_path << std::endl;
         return -1;
@@ -73,7 +70,6 @@ int main(int argc, char* argv[]) {
     if (!model.loadModel(model_path)) {
         return -1;
     }
-    model.printModelInfo();
 
     ImageLoader imgLoader;
     std::vector<float> input_image;
@@ -81,18 +77,42 @@ int main(int argc, char* argv[]) {
 
     if (fileExists(image_path)) {
         input_image = imgLoader.loadMNISTImage(image_path, width, height);
-        if (!input_image.empty()) {
-            std::cout << "Using image file: " << image_path << std::endl;
-        }
     }
 
     if (input_image.empty()) {
-        std::cout << "No image file found. Using fallback pattern..." << std::endl;
         input_image = imgLoader.createDefaultPattern();
     }
-    InferenceEngine engine(model);
-    int prediction = engine.run(input_image);
 
-    std::cout << "Cleaned up GPU memory." << std::endl;
+    InferenceEngine engine(model);
+
+    std::cout << "\n[GPU Setup]" << std::endl;
+    auto setup_start = std::chrono::high_resolution_clock::now();
+    if (!engine.allocateGPU()) {
+        std::cerr << "Error: GPU allocation failed!" << std::endl;
+        return -1;
+    }
+    auto setup_end = std::chrono::high_resolution_clock::now();
+    auto setup_ms = std::chrono::duration<double, std::milli>(setup_end - setup_start).count();
+    std::cout << "GPU setup time: " << setup_ms << " ms" << std::endl;
+    
+    std::cout << "\n[Warmup run]" << std::endl;
+    engine.run(input_image);
+    std::cout << "\n[Actual measurement]" << std::endl;
+    auto start = std::chrono::high_resolution_clock::now();
+    int prediction = engine.run(input_image);
+    auto end = std::chrono::high_resolution_clock::now();
+
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    
+    std::cout << "\n=== Resulet ===" << std::endl;
+    std::cout << "inference: " << prediction << std::endl;
+    std::cout << "time: " << duration_ms << " ms (" << duration_us / 1000.0 << " ms)" << std::endl;
+    std::cout << "\n=== Layer Details ===" << std::endl;
+    std::cout << "Layer 1 (Conv+Pool): " << engine.getLayer1Time() << " ms" << std::endl;
+    std::cout << "Layer 2 (Conv+Pool): " << engine.getLayer2Time() << " ms" << std::endl;
+    std::cout << "Layer 3 (FC+Softmax): " << engine.getLayer3Time() << " ms" << std::endl;
+    std::cout << "Total (sum): " << (engine.getLayer1Time() + engine.getLayer2Time() + engine.getLayer3Time()) << " ms" << std::endl;
+
     return 0;
 }
