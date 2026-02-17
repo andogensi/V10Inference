@@ -84,12 +84,12 @@ jobs:
           nvcc -std=c++17 -O2 \
             -I./include -I./third_party/onnx \
             -c ./src/cuda/kernels.cu -o build/kernels.o
-
-          # Link
+            
           nvcc -o build/V10Inference \
             build/main.o build/inference_engine.o build/model_loader.o build/image_loader.o \
             build/onnx_pb.o build/kernels.o \
-            -lprotobuf -L"$CUDA_PATH/lib64"
+            -L"$CUDA_PATH/lib64" \
+            $(pkg-config --libs protobuf absl_log absl_log_internal_message absl_log_internal_check_op)
 
       - name: Smoke test
         run: |
